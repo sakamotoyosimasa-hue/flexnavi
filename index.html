@@ -27,13 +27,13 @@
       z-index: 1;
     }
 
-    /* 検索バーコンテナ */
+    /* 検索バー：最前面に常時固定 */
     .search-wrapper {
-      position: absolute;
+      position: fixed;
       top: 14px;
       left: 14px;
       right: 14px;
-      z-index: 9999;
+      z-index: 99999;
     }
     .search-container {
       background: #ffffff;
@@ -42,7 +42,7 @@
       display: flex;
       align-items: center;
       padding: 0 16px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      box-shadow: 0 3px 10px rgba(0,0,0,0.25);
     }
     .search-icon {
       font-size: 18px;
@@ -67,19 +67,15 @@
       cursor: pointer;
     }
 
-    /* 予測候補リスト */
+    /* 候補リスト */
     .suggestions-list {
       display: none;
-      position: absolute;
-      top: 54px;
-      left: 0;
-      right: 0;
+      margin-top: 6px;
       background: #ffffff;
       border-radius: 16px;
       box-shadow: 0 6px 20px rgba(0,0,0,0.25);
       overflow-y: auto;
-      max-height: 260px;
-      z-index: 10000;
+      max-height: 240px;
     }
     .suggestion-item {
       padding: 12px 16px;
@@ -95,35 +91,22 @@
     .suggestion-item:active {
       background: #f1f3f4;
     }
-    .suggestion-icon {
-      font-size: 18px;
-    }
-    .suggestion-content {
-      flex: 1;
-      overflow: hidden;
-    }
     .suggestion-main {
       font-size: 14px;
       font-weight: 600;
       color: #202124;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
     .suggestion-sub {
       font-size: 12px;
       color: #5f6368;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     /* 車速メーター */
     .speedometer {
-      position: absolute;
+      position: fixed;
       bottom: 24px;
       left: 16px;
-      z-index: 2000;
+      z-index: 10000;
       background: rgba(255, 255, 255, 0.95);
       backdrop-filter: blur(8px);
       border-radius: 14px;
@@ -148,10 +131,10 @@
 
     /* 現在地FAB */
     .fab-recenter {
-      position: absolute;
+      position: fixed;
       bottom: 24px;
       right: 16px;
-      z-index: 2000;
+      z-index: 10000;
       width: 52px;
       height: 52px;
       background: #ffffff;
@@ -175,11 +158,11 @@
 
     /* ルート情報カード */
     .route-card {
-      position: absolute;
+      position: fixed;
       bottom: 0;
       left: 0;
       right: 0;
-      z-index: 3000;
+      z-index: 20000;
       background: #ffffff;
       border-radius: 20px 20px 0 0;
       padding: 16px 20px 24px 20px;
@@ -269,8 +252,8 @@
 
   <div class="route-card" id="routeCard">
     <div class="route-header">
-      <div class="time-large" id="routeTime">約 -- 分</div>
-      <div class="dist-meta" id="routeDist">(-- km)</div>
+      <div class="time-large" id="routeTime">計算中...</div>
+      <div class="dist-meta" id="routeDist"></div>
     </div>
     <div class="dest-title" id="destTitle">目的地</div>
     <div class="route-actions">
@@ -280,8 +263,8 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Google Maps API -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=Maps_Platform_API_Key_REPLACE&libraries=places&language=ja&region=JP"></script>
+  <!-- Google Maps SDK -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=Maps_Platform_API_Key_REPLACE&libraries=places,geometry&language=ja&region=JP"></script>
 
   <script>
     let isTracking = true;
@@ -318,6 +301,7 @@
       iconAnchor: [13, 13]
     });
 
+    // GPS位置取得
     if ("geolocation" in navigator) {
       navigator.geolocation.watchPosition(
         (pos) => {
@@ -352,23 +336,7 @@
     const searchInput = document.getElementById('destInput');
     const suggestionsList = document.getElementById('suggestionsList');
     const clearBtn = document.getElementById('clearBtn');
-    let autocompleteService = null;
-    let placesService = null;
-    let geocoder = null;
     let debounceTimer = null;
-
-    function initServices() {
-      if (window.google && google.maps) {
-        if (google.maps.places) {
-          autocompleteService = new google.maps.places.AutocompleteService();
-          const dummy = document.createElement('div');
-          placesService = new google.maps.places.PlacesService(dummy);
-        }
-        geocoder = new google.maps.Geocoder();
-      }
-    }
-
-    window.addEventListener('load', initServices);
 
     searchInput.addEventListener('input', (e) => {
       const q = e.target.value.trim();
@@ -381,11 +349,10 @@
       }
 
       debounceTimer = setTimeout(() => {
-        searchGoogle(q);
-      }, 250);
+        runGooglePlacesSearch(q);
+      }, 300);
     });
 
-    // キーボードのEnter/検索キー押下時
     searchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -393,7 +360,7 @@
         if (!q) return;
         searchInput.blur();
         suggestionsList.style.display = 'none';
-        directGeocode(q);
+        runDirectSearch(q);
       }
     });
 
@@ -403,85 +370,68 @@
       suggestionsList.style.display = 'none';
     });
 
-    function searchGoogle(query) {
-      if (!autocompleteService) initServices();
-      if (!autocompleteService) return;
+    // Google Places TextSearch（施設名・屋号の完全一致検索）
+    function runGooglePlacesSearch(query) {
+      if (!window.google || !google.maps || !google.maps.places) return;
 
+      const dummy = document.createElement('div');
+      const service = new google.maps.places.PlacesService(dummy);
       const req = {
-        input: query,
-        componentRestrictions: { country: 'jp' }
+        query: query,
+        bounds: map.getBounds()
       };
 
-      if (currentLat && currentLng) {
-        req.location = new google.maps.LatLng(currentLat, currentLng);
-        req.radius = 50000;
-      }
-
-      autocompleteService.getPlacePredictions(req, (predictions, status) => {
-        if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions || predictions.length === 0) {
-          suggestionsList.style.display = 'none';
-          return;
-        }
-
-        suggestionsList.innerHTML = '';
-        predictions.forEach(p => {
-          const mainText = p.structured_formatting ? p.structured_formatting.main_text : p.description;
-          const secondaryText = p.structured_formatting ? p.structured_formatting.secondary_text : '';
-
-          const item = document.createElement('div');
-          item.className = 'suggestion-item';
-          item.innerHTML = `
-            <span class="suggestion-icon">📍</span>
-            <div class="suggestion-content">
-              <div class="suggestion-main">${mainText}</div>
-              <div class="suggestion-sub">${secondaryText || ''}</div>
-            </div>
-          `;
-          item.addEventListener('click', () => {
-            searchInput.value = mainText;
-            suggestionsList.style.display = 'none';
-            resolvePlaceId(p.place_id, mainText);
+      service.textSearch(req, (results, status) => {
+        if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
+          suggestionsList.innerHTML = '';
+          results.slice(0, 5).forEach(r => {
+            const item = document.createElement('div');
+            item.className = 'suggestion-item';
+            item.innerHTML = `
+              <span style="font-size:18px;">📍</span>
+              <div style="flex:1;overflow:hidden;">
+                <div class="suggestion-main">${r.name}</div>
+                <div class="suggestion-sub">${r.formatted_address || ''}</div>
+              </div>
+            `;
+            item.addEventListener('click', () => {
+              searchInput.value = r.name;
+              suggestionsList.style.display = 'none';
+              setDestination(r.geometry.location.lat(), r.geometry.location.lng(), r.name);
+            });
+            suggestionsList.appendChild(item);
           });
-          suggestionsList.appendChild(item);
-        });
-
-        suggestionsList.style.display = 'block';
+          suggestionsList.style.display = 'block';
+        }
       });
     }
 
-    function resolvePlaceId(placeId, title) {
-      if (!placesService) initServices();
-      if (placesService) {
-        placesService.getDetails({ placeId: placeId, fields: ['geometry'] }, (res, status) => {
-          if (status === google.maps.places.PlacesServiceStatus.OK && res.geometry) {
-            setDestination(res.geometry.location.lat(), res.geometry.location.lng(), title);
+    // Enter確定時の検索
+    function runDirectSearch(query) {
+      if (window.google && google.maps && google.maps.places) {
+        const dummy = document.createElement('div');
+        const service = new google.maps.places.PlacesService(dummy);
+        service.textSearch({ query: query, bounds: map.getBounds() }, (results, status) => {
+          if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
+            const r = results[0];
+            setDestination(r.geometry.location.lat(), r.geometry.location.lng(), r.name);
             return;
           }
-          directGeocode(title);
+          // ジオコーダーにフォールバック
+          if (google.maps.Geocoder) {
+            const geocoder = new google.maps.Geocoder();
+            geocoder.geocode({ address: query, region: 'JP' }, (res, gStatus) => {
+              if (gStatus === 'OK' && res[0]) {
+                const loc = res[0].geometry.location;
+                setDestination(loc.lat(), loc.lng(), query);
+              }
+            });
+          }
         });
-      } else {
-        directGeocode(title);
       }
     }
 
-    function directGeocode(query) {
-      if (!geocoder) initServices();
-      if (!geocoder) return;
-
-      geocoder.geocode({ address: query, region: 'JP' }, (results, status) => {
-        if (status === 'OK' && results[0]) {
-          const loc = results[0].geometry.location;
-          setDestination(loc.lat(), loc.lng(), query);
-        } else {
-          alert('該当する場所が見つかりませんでした');
-        }
-      });
-    }
-
-    map.on('click', (e) => {
-      setDestination(e.latlng.lat, e.latlng.lng, "指定した地点");
-    });
-
+    // 目的地設定 & ルート計算
     function setDestination(lat, lng, title) {
       destLat = lat;
       destLng = lng;
@@ -493,18 +443,26 @@
       }
 
       document.getElementById('destTitle').textContent = title;
-      if (currentLat && currentLng) {
-        fetchRoute(currentLat, currentLng, destLat, destLng);
-      }
+      document.getElementById('routeTime').textContent = "計算中...";
+      document.getElementById('routeDist').textContent = "";
+      document.getElementById('routeCard').classList.add('show');
+
+      const startLat = currentLat || 34.73;
+      const startLng = currentLng || 135.63;
+      fetchRoute(startLat, startLng, destLat, destLng);
     }
 
+    // OSRM ルート検索
     async function fetchRoute(startLat, startLng, endLat, endLng) {
       const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
 
       try {
         const res = await fetch(url);
         const data = await res.json();
-        if (!data.routes || data.routes.length === 0) return;
+        if (!data.routes || data.routes.length === 0) {
+          document.getElementById('routeTime').textContent = "ルート取得失敗";
+          return;
+        }
 
         const route = data.routes[0];
         const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
@@ -523,13 +481,18 @@
         document.getElementById('routeTime').textContent = `${timeMin} 分`;
         document.getElementById('routeDist').textContent = `(${distKm} km)`;
 
-        document.getElementById('routeCard').classList.add('show');
-        map.fitBounds(routeLayer.getBounds(), { padding: [80, 100] });
+        map.fitBounds(routeLayer.getBounds(), { padding: [60, 80] });
         isTracking = false;
       } catch (e) {
-        console.error("ルート取得エラー:", e);
+        console.error("OSRMエラー:", e);
+        document.getElementById('routeTime').textContent = "通信エラー";
       }
     }
+
+    // 地図タップでも設定可能
+    map.on('click', (e) => {
+      setDestination(e.latlng.lat, e.latlng.lng, "指定した地点");
+    });
 
     document.getElementById('startBtn').addEventListener('click', () => {
       if (userMarker) {
