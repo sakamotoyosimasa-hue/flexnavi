@@ -43,10 +43,13 @@
       padding: 0 16px;
       box-shadow: 0 3px 10px rgba(0,0,0,0.25);
     }
-    .search-icon {
+    .search-btn {
+      background: none;
+      border: none;
       font-size: 18px;
-      margin-right: 12px;
-      color: #5f6368;
+      margin-right: 10px;
+      cursor: pointer;
+      padding: 4px;
     }
     .search-input {
       flex: 1;
@@ -66,16 +69,18 @@
       cursor: pointer;
     }
 
-    /* エラー診断用バッジ */
-    .status-badge {
+    /* 状態トースト */
+    .status-toast {
       display: none;
       margin-top: 6px;
-      padding: 8px 12px;
-      background: #ea4335;
+      padding: 10px 14px;
+      background: #202124;
       color: #ffffff;
-      font-size: 12px;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      text-align: center;
     }
 
     .suggestions-list {
@@ -85,7 +90,7 @@
       border-radius: 16px;
       box-shadow: 0 6px 20px rgba(0,0,0,0.25);
       overflow-y: auto;
-      max-height: 240px;
+      max-height: 260px;
     }
     .suggestion-item {
       padding: 12px 16px;
@@ -237,11 +242,11 @@
 
   <div class="search-wrapper">
     <div class="search-container">
-      <span class="search-icon">🔍</span>
+      <button class="search-btn" id="searchSubmitBtn">🔍</button>
       <input type="text" class="search-input" id="destInput" placeholder="施設名・住所を検索" autocomplete="off" enterkeyhint="search" />
       <button class="clear-btn" id="clearBtn">×</button>
     </div>
-    <div class="status-badge" id="statusBadge"></div>
+    <div class="status-toast" id="statusToast"></div>
     <div class="suggestions-list" id="suggestionsList"></div>
   </div>
 
@@ -272,14 +277,18 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Google Maps SDK（APIキー組み込み済み） -->
+  <!-- Google Maps SDK -->
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDkb6oE-Z1m64bYzZAlJSkXC7m2MjD5PpY&libraries=places&language=ja&region=JP"></script>
 
   <script>
-    const statusBadge = document.getElementById('statusBadge');
-    function showError(msg) {
-      statusBadge.textContent = msg;
-      statusBadge.style.display = 'block';
+    const statusToast = document.getElementById('statusToast');
+    function showToast(msg, isError = false) {
+      statusToast.textContent = msg;
+      statusToast.style.background = isError ? '#ea4335' : '#202124';
+      statusToast.style.display = 'block';
+      if (!isError) {
+        setTimeout(() => { statusToast.style.display = 'none'; }, 2500);
+      }
     }
 
     let isTracking = true;
@@ -348,6 +357,7 @@
     }
 
     const searchInput = document.getElementById('destInput');
+    const searchSubmitBtn = document.getElementById('searchSubmitBtn');
     const suggestionsList = document.getElementById('suggestionsList');
     const clearBtn = document.getElementById('clearBtn');
     let debounceTimer = null;
@@ -355,79 +365,87 @@
     searchInput.addEventListener('input', (e) => {
       const q = e.target.value.trim();
       clearBtn.style.display = q ? 'block' : 'none';
-      statusBadge.style.display = 'none';
       clearTimeout(debounceTimer);
 
       if (!q) {
         suggestionsList.style.display = 'none';
+        statusToast.style.display = 'none';
         return;
       }
 
       debounceTimer = setTimeout(() => {
-        runGooglePlacesSearch(q);
-      }, 300);
+        executeSearch(q, false);
+      }, 350);
     });
 
-    searchInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
+    // 改行キーまたはiOS確定ボタン
+    searchInput.addEventListener('keyup', (e) => {
+      if (e.key === 'Enter' || e.keyCode === 13) {
         const q = searchInput.value.trim();
         if (!q) return;
         searchInput.blur();
-        suggestionsList.style.display = 'none';
-        runGooglePlacesSearch(q, true);
+        executeSearch(q, true);
       }
+    });
+
+    // 虫眼鏡ボタンタップ
+    searchSubmitBtn.addEventListener('click', () => {
+      const q = searchInput.value.trim();
+      if (!q) return;
+      searchInput.blur();
+      executeSearch(q, true);
     });
 
     clearBtn.addEventListener('click', () => {
       searchInput.value = '';
       clearBtn.style.display = 'none';
       suggestionsList.style.display = 'none';
-      statusBadge.style.display = 'none';
+      statusToast.style.display = 'none';
     });
 
-    function runGooglePlacesSearch(query, isEnter = false) {
-      if (!window.google || !google.maps) {
-        showError("Google Maps SDK ロード中 / 未検出");
+    // Google Places TextSearch 実行部
+    function executeSearch(query, isDirectCommit = false) {
+      if (!window.google || !google.maps || !google.maps.places) {
+        showToast("Google Places SDK初期化待機中", true);
         return;
       }
 
-      if (!google.maps.places) {
-        showError("Places ライブラリ未初期化");
-        return;
-      }
+      showToast("Googleで検索中: " + query);
 
       const dummy = document.createElement('div');
       const service = new google.maps.places.PlacesService(dummy);
-      const req = {
-        query: query,
-        bounds: map.getBounds()
-      };
+      
+      const req = { query: query };
+      const centerLat = currentLat || 34.73;
+      const centerLng = currentLng || 135.63;
+      req.location = new google.maps.LatLng(centerLat, centerLng);
+      req.radius = 30000;
 
       service.textSearch(req, (results, status) => {
         if (status !== google.maps.places.PlacesServiceStatus.OK || !results || results.length === 0) {
-          if (status !== google.maps.places.PlacesServiceStatus.OK) {
-            showError("Google APIステータス: " + status);
-          }
+          showToast("検索結果なし (" + status + ")", true);
           suggestionsList.style.display = 'none';
           return;
         }
 
-        if (isEnter) {
-          const r = results[0];
-          setDestination(r.geometry.location.lat(), r.geometry.location.lng(), r.name);
+        statusToast.style.display = 'none';
+
+        if (isDirectCommit) {
+          const top = results[0];
+          suggestionsList.style.display = 'none';
+          setDestination(top.geometry.location.lat(), top.geometry.location.lng(), top.name);
           return;
         }
 
         suggestionsList.innerHTML = '';
-        results.slice(0, 5).forEach(r => {
+        results.slice(0, 6).forEach(r => {
           const item = document.createElement('div');
           item.className = 'suggestion-item';
           item.innerHTML = `
             <span style="font-size:18px;">📍</span>
             <div style="flex:1;overflow:hidden;">
               <div class="suggestion-main">${r.name}</div>
-              <div class="suggestion-sub">${r.formatted_address || ''}</div>
+              <div class="suggestion-sub">${r.formatted_address ? r.formatted_address.replace(/^日本、/, '') : ''}</div>
             </div>
           `;
           item.addEventListener('click', () => {
