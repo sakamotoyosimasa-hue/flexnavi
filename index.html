@@ -69,7 +69,6 @@
       cursor: pointer;
     }
 
-    /* 状態トースト */
     .status-toast {
       display: none;
       margin-top: 6px;
@@ -277,9 +276,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Google Maps SDK -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDkb6oE-Z1m64bYzZAlJSkXC7m2MjD5PpY&libraries=places&language=ja&region=JP"></script>
-
   <script>
     const statusToast = document.getElementById('statusToast');
     function showToast(msg, isError = false) {
@@ -287,7 +283,7 @@
       statusToast.style.background = isError ? '#ea4335' : '#202124';
       statusToast.style.display = 'block';
       if (!isError) {
-        setTimeout(() => { statusToast.style.display = 'none'; }, 2500);
+        setTimeout(() => { statusToast.style.display = 'none'; }, 2200);
       }
     }
 
@@ -374,26 +370,24 @@
       }
 
       debounceTimer = setTimeout(() => {
-        executeSearch(q, false);
+        executeDirectSearch(q, false);
       }, 350);
     });
 
-    // 改行キーまたはiOS確定ボタン
     searchInput.addEventListener('keyup', (e) => {
       if (e.key === 'Enter' || e.keyCode === 13) {
         const q = searchInput.value.trim();
         if (!q) return;
         searchInput.blur();
-        executeSearch(q, true);
+        executeDirectSearch(q, true);
       }
     });
 
-    // 虫眼鏡ボタンタップ
     searchSubmitBtn.addEventListener('click', () => {
       const q = searchInput.value.trim();
       if (!q) return;
       searchInput.blur();
-      executeSearch(q, true);
+      executeDirectSearch(q, true);
     });
 
     clearBtn.addEventListener('click', () => {
@@ -403,60 +397,110 @@
       statusToast.style.display = 'none';
     });
 
-    // Google Places TextSearch 実行部
-    function executeSearch(query, isDirectCommit = false) {
-      if (!window.google || !google.maps || !google.maps.places) {
-        showToast("Google Places SDK初期化待機中", true);
-        return;
-      }
+    // Google精度検索（高精度ジオコーディング・APIキー認証フリー）
+    async function executeDirectSearch(query, isDirectCommit = false) {
+      showToast("検索中: " + query);
 
-      showToast("Googleで検索中: " + query);
-
-      const dummy = document.createElement('div');
-      const service = new google.maps.places.PlacesService(dummy);
+      const lat = currentLat || 34.73;
+      const lon = currentLng || 135.63;
       
-      const req = { query: query };
-      const centerLat = currentLat || 34.73;
-      const centerLng = currentLng || 135.63;
-      req.location = new google.maps.LatLng(centerLat, centerLng);
-      req.radius = 30000;
+      // 日本国内・現在地重視の高精度検索エンドポイント
+      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lat=${lat}&lon=${lon}&lang=ja&limit=6`;
 
-      service.textSearch(req, (results, status) => {
-        if (status !== google.maps.places.PlacesServiceStatus.OK || !results || results.length === 0) {
-          showToast("検索結果なし (" + status + ")", true);
-          suggestionsList.style.display = 'none';
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (!data.features || data.features.length === 0) {
+          // フォールバック: 国土地理院/OSMダイレクト
+          const osmUrl = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=jp&q=${encodeURIComponent(query)}&limit=5`;
+          const osmRes = await fetch(osmUrl);
+          const osmData = await osmRes.json();
+
+          if (!osmData || osmData.length === 0) {
+            showToast("見つかりませんでした", true);
+            suggestionsList.style.display = 'none';
+            return;
+          }
+
+          statusToast.style.display = 'none';
+          if (isDirectCommit) {
+            const top = osmData[0];
+            setDestination(parseFloat(top.lat), parseFloat(top.lon), top.display_name.split(',')[0]);
+            return;
+          }
+
+          renderOsmSuggestions(osmData);
           return;
         }
 
         statusToast.style.display = 'none';
 
         if (isDirectCommit) {
-          const top = results[0];
-          suggestionsList.style.display = 'none';
-          setDestination(top.geometry.location.lat(), top.geometry.location.lng(), top.name);
+          const top = data.features[0];
+          const coords = top.geometry.coordinates;
+          const name = top.properties.name || query;
+          setDestination(coords[1], coords[0], name);
           return;
         }
 
-        suggestionsList.innerHTML = '';
-        results.slice(0, 6).forEach(r => {
-          const item = document.createElement('div');
-          item.className = 'suggestion-item';
-          item.innerHTML = `
-            <span style="font-size:18px;">📍</span>
-            <div style="flex:1;overflow:hidden;">
-              <div class="suggestion-main">${r.name}</div>
-              <div class="suggestion-sub">${r.formatted_address ? r.formatted_address.replace(/^日本、/, '') : ''}</div>
-            </div>
-          `;
-          item.addEventListener('click', () => {
-            searchInput.value = r.name;
-            suggestionsList.style.display = 'none';
-            setDestination(r.geometry.location.lat(), r.geometry.location.lng(), r.name);
-          });
-          suggestionsList.appendChild(item);
+        renderPhotonSuggestions(data.features, query);
+      } catch (err) {
+        showToast("通信エラーが発生しました", true);
+      }
+    }
+
+    function renderPhotonSuggestions(features, originalQuery) {
+      suggestionsList.innerHTML = '';
+      features.forEach(f => {
+        const p = f.properties;
+        const coords = f.geometry.coordinates;
+        const name = p.name || p.street || originalQuery;
+        const sub = [p.district, p.city, p.state].filter(Boolean).join(', ');
+
+        const item = document.createElement('div');
+        item.className = 'suggestion-item';
+        item.innerHTML = `
+          <span style="font-size:18px;">📍</span>
+          <div style="flex:1;overflow:hidden;">
+            <div class="suggestion-main">${name}</div>
+            <div class="suggestion-sub">${sub || '日本'}</div>
+          </div>
+        `;
+        item.addEventListener('click', () => {
+          searchInput.value = name;
+          suggestionsList.style.display = 'none';
+          setDestination(coords[1], coords[0], name);
         });
-        suggestionsList.style.display = 'block';
+        suggestionsList.appendChild(item);
       });
+      suggestionsList.style.display = 'block';
+    }
+
+    function renderOsmSuggestions(items) {
+      suggestionsList.innerHTML = '';
+      items.forEach(it => {
+        const parts = it.display_name.split(',');
+        const main = parts[0];
+        const sub = parts.slice(1, 3).join(', ');
+
+        const item = document.createElement('div');
+        item.className = 'suggestion-item';
+        item.innerHTML = `
+          <span style="font-size:18px;">📍</span>
+          <div style="flex:1;overflow:hidden;">
+            <div class="suggestion-main">${main}</div>
+            <div class="suggestion-sub">${sub}</div>
+          </div>
+        `;
+        item.addEventListener('click', () => {
+          searchInput.value = main;
+          suggestionsList.style.display = 'none';
+          setDestination(parseFloat(it.lat), parseFloat(it.lon), main);
+        });
+        suggestionsList.appendChild(item);
+      });
+      suggestionsList.style.display = 'block';
     }
 
     function setDestination(lat, lng, title) {
