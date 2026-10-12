@@ -27,7 +27,6 @@
       z-index: 1;
     }
 
-    /* 検索バー：最前面に常時固定 */
     .search-wrapper {
       position: fixed;
       top: 14px;
@@ -67,7 +66,18 @@
       cursor: pointer;
     }
 
-    /* 候補リスト */
+    /* 診断用ステータスバー */
+    .status-badge {
+      display: none;
+      margin-top: 6px;
+      padding: 8px 12px;
+      background: #ea4335;
+      color: #ffffff;
+      font-size: 12px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+
     .suggestions-list {
       display: none;
       margin-top: 6px;
@@ -101,7 +111,6 @@
       color: #5f6368;
     }
 
-    /* 車速メーター */
     .speedometer {
       position: fixed;
       bottom: 24px;
@@ -129,7 +138,6 @@
       margin-top: 2px;
     }
 
-    /* 現在地FAB */
     .fab-recenter {
       position: fixed;
       bottom: 24px;
@@ -156,7 +164,6 @@
       fill: #1a73e8;
     }
 
-    /* ルート情報カード */
     .route-card {
       position: fixed;
       bottom: 0;
@@ -234,6 +241,7 @@
       <input type="text" class="search-input" id="destInput" placeholder="施設名・住所を検索" autocomplete="off" enterkeyhint="search" />
       <button class="clear-btn" id="clearBtn">×</button>
     </div>
+    <div class="status-badge" id="statusBadge"></div>
     <div class="suggestions-list" id="suggestionsList"></div>
   </div>
 
@@ -263,10 +271,17 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Google Maps SDK -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=Maps_Platform_API_Key_REPLACE&libraries=places,geometry&language=ja&region=JP"></script>
+
+  <!-- Google Maps SDK：実際のAPIキーを入れてください -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_ACTUAL_API_KEY_HERE&libraries=places&language=ja&region=JP"></script>
 
   <script>
+    const statusBadge = document.getElementById('statusBadge');
+    function showError(msg) {
+      statusBadge.textContent = msg;
+      statusBadge.style.display = 'block';
+    }
+
     let isTracking = true;
     let userMarker = null;
     let accuracyCircle = null;
@@ -301,7 +316,6 @@
       iconAnchor: [13, 13]
     });
 
-    // GPS位置取得
     if ("geolocation" in navigator) {
       navigator.geolocation.watchPosition(
         (pos) => {
@@ -341,6 +355,7 @@
     searchInput.addEventListener('input', (e) => {
       const q = e.target.value.trim();
       clearBtn.style.display = q ? 'block' : 'none';
+      statusBadge.style.display = 'none';
       clearTimeout(debounceTimer);
 
       if (!q) {
@@ -360,7 +375,7 @@
         if (!q) return;
         searchInput.blur();
         suggestionsList.style.display = 'none';
-        runDirectSearch(q);
+        runGooglePlacesSearch(q, true);
       }
     });
 
@@ -368,11 +383,19 @@
       searchInput.value = '';
       clearBtn.style.display = 'none';
       suggestionsList.style.display = 'none';
+      statusBadge.style.display = 'none';
     });
 
-    // Google Places TextSearch（施設名・屋号の完全一致検索）
-    function runGooglePlacesSearch(query) {
-      if (!window.google || !google.maps || !google.maps.places) return;
+    function runGooglePlacesSearch(query, isEnter = false) {
+      if (!window.google || !google.maps) {
+        showError("Google Maps SDKがロードされていません（APIキーを確認してください）");
+        return;
+      }
+
+      if (!google.maps.places) {
+        showError("Placesライブラリが有効ではありません");
+        return;
+      }
 
       const dummy = document.createElement('div');
       const service = new google.maps.places.PlacesService(dummy);
@@ -382,56 +405,42 @@
       };
 
       service.textSearch(req, (results, status) => {
-        if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
-          suggestionsList.innerHTML = '';
-          results.slice(0, 5).forEach(r => {
-            const item = document.createElement('div');
-            item.className = 'suggestion-item';
-            item.innerHTML = `
-              <span style="font-size:18px;">📍</span>
-              <div style="flex:1;overflow:hidden;">
-                <div class="suggestion-main">${r.name}</div>
-                <div class="suggestion-sub">${r.formatted_address || ''}</div>
-              </div>
-            `;
-            item.addEventListener('click', () => {
-              searchInput.value = r.name;
-              suggestionsList.style.display = 'none';
-              setDestination(r.geometry.location.lat(), r.geometry.location.lng(), r.name);
-            });
-            suggestionsList.appendChild(item);
-          });
-          suggestionsList.style.display = 'block';
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !results || results.length === 0) {
+          if (status !== google.maps.places.PlacesServiceStatus.OK) {
+            showError("Googleエラー: " + status);
+          }
+          suggestionsList.style.display = 'none';
+          return;
         }
+
+        if (isEnter) {
+          const r = results[0];
+          setDestination(r.geometry.location.lat(), r.geometry.location.lng(), r.name);
+          return;
+        }
+
+        suggestionsList.innerHTML = '';
+        results.slice(0, 5).forEach(r => {
+          const item = document.createElement('div');
+          item.className = 'suggestion-item';
+          item.innerHTML = `
+            <span style="font-size:18px;">📍</span>
+            <div style="flex:1;overflow:hidden;">
+              <div class="suggestion-main">${r.name}</div>
+              <div class="suggestion-sub">${r.formatted_address || ''}</div>
+            </div>
+          `;
+          item.addEventListener('click', () => {
+            searchInput.value = r.name;
+            suggestionsList.style.display = 'none';
+            setDestination(r.geometry.location.lat(), r.geometry.location.lng(), r.name);
+          });
+          suggestionsList.appendChild(item);
+        });
+        suggestionsList.style.display = 'block';
       });
     }
 
-    // Enter確定時の検索
-    function runDirectSearch(query) {
-      if (window.google && google.maps && google.maps.places) {
-        const dummy = document.createElement('div');
-        const service = new google.maps.places.PlacesService(dummy);
-        service.textSearch({ query: query, bounds: map.getBounds() }, (results, status) => {
-          if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
-            const r = results[0];
-            setDestination(r.geometry.location.lat(), r.geometry.location.lng(), r.name);
-            return;
-          }
-          // ジオコーダーにフォールバック
-          if (google.maps.Geocoder) {
-            const geocoder = new google.maps.Geocoder();
-            geocoder.geocode({ address: query, region: 'JP' }, (res, gStatus) => {
-              if (gStatus === 'OK' && res[0]) {
-                const loc = res[0].geometry.location;
-                setDestination(loc.lat(), loc.lng(), query);
-              }
-            });
-          }
-        });
-      }
-    }
-
-    // 目的地設定 & ルート計算
     function setDestination(lat, lng, title) {
       destLat = lat;
       destLng = lng;
@@ -452,7 +461,6 @@
       fetchRoute(startLat, startLng, destLat, destLng);
     }
 
-    // OSRM ルート検索
     async function fetchRoute(startLat, startLng, endLat, endLng) {
       const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
 
@@ -489,7 +497,6 @@
       }
     }
 
-    // 地図タップでも設定可能
     map.on('click', (e) => {
       setDestination(e.latlng.lat, e.latlng.lng, "指定した地点");
     });
