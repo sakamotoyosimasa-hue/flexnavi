@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>FlexNavi</title>
   
-  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
   <style>
@@ -14,8 +13,6 @@
       margin: 0;
       padding: 0;
       -webkit-tap-highlight-color: transparent;
-      user-select: none;
-      -webkit-user-select: none;
     }
     html, body {
       width: 100%;
@@ -36,7 +33,7 @@
       top: 14px;
       left: 14px;
       right: 14px;
-      z-index: 1000;
+      z-index: 9999;
     }
     .search-container {
       background: #ffffff;
@@ -45,12 +42,12 @@
       display: flex;
       align-items: center;
       padding: 0 16px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
     }
     .search-icon {
-      color: #5f6368;
       font-size: 18px;
       margin-right: 12px;
+      color: #5f6368;
     }
     .search-input {
       flex: 1;
@@ -59,8 +56,6 @@
       font-size: 16px;
       color: #202124;
       background: transparent;
-      user-select: auto;
-      -webkit-user-select: auto;
     }
     .clear-btn {
       display: none;
@@ -68,11 +63,11 @@
       border: none;
       font-size: 18px;
       color: #70757a;
+      padding: 6px;
       cursor: pointer;
-      padding: 4px;
     }
 
-    /* 予測候補リスト（自前レンダリング） */
+    /* 予測候補リスト */
     .suggestions-list {
       display: none;
       position: absolute;
@@ -81,11 +76,10 @@
       right: 0;
       background: #ffffff;
       border-radius: 16px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
-      overflow: hidden;
-      max-height: 280px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
       overflow-y: auto;
-      z-index: 1001;
+      max-height: 260px;
+      z-index: 10000;
     }
     .suggestion-item {
       padding: 12px 16px;
@@ -99,11 +93,10 @@
       border-bottom: none;
     }
     .suggestion-item:active {
-      background: #f8f9fa;
+      background: #f1f3f4;
     }
     .suggestion-icon {
-      font-size: 16px;
-      color: #1a73e8;
+      font-size: 18px;
     }
     .suggestion-content {
       flex: 1;
@@ -125,40 +118,12 @@
       text-overflow: ellipsis;
     }
 
-    /* 右下現在地FAB */
-    .fab-recenter {
-      position: absolute;
-      bottom: 24px;
-      right: 16px;
-      z-index: 1000;
-      width: 52px;
-      height: 52px;
-      background: #ffffff;
-      border-radius: 50%;
-      box-shadow: 0 3px 8px rgba(0,0,0,0.25);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      border: none;
-      transition: transform 0.1s, background-color 0.2s;
-    }
-    .fab-recenter:active {
-      transform: scale(0.92);
-      background: #f1f3f4;
-    }
-    .fab-icon {
-      width: 24px;
-      height: 24px;
-      fill: #1a73e8;
-    }
-
-    /* 左下：車速メーター */
+    /* 車速メーター */
     .speedometer {
       position: absolute;
       bottom: 24px;
       left: 16px;
-      z-index: 1000;
+      z-index: 2000;
       background: rgba(255, 255, 255, 0.95);
       backdrop-filter: blur(8px);
       border-radius: 14px;
@@ -181,13 +146,40 @@
       margin-top: 2px;
     }
 
-    /* 下部ルート案内カード */
+    /* 現在地FAB */
+    .fab-recenter {
+      position: absolute;
+      bottom: 24px;
+      right: 16px;
+      z-index: 2000;
+      width: 52px;
+      height: 52px;
+      background: #ffffff;
+      border-radius: 50%;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+    }
+    .fab-recenter:active {
+      transform: scale(0.92);
+      background: #f1f3f4;
+    }
+    .fab-icon {
+      width: 24px;
+      height: 24px;
+      fill: #1a73e8;
+    }
+
+    /* ルート情報カード */
     .route-card {
       position: absolute;
       bottom: 0;
       left: 0;
       right: 0;
-      z-index: 1001;
+      z-index: 3000;
       background: #ffffff;
       border-radius: 20px 20px 0 0;
       padding: 16px 20px 24px 20px;
@@ -253,34 +245,28 @@
 </head>
 <body>
 
-  <!-- 検索バー -->
   <div class="search-wrapper">
     <div class="search-container">
       <span class="search-icon">🔍</span>
-      <input type="text" class="search-input" id="destInput" placeholder="Googleで場所を検索" autocomplete="off" />
+      <input type="text" class="search-input" id="destInput" placeholder="施設名・住所を検索" autocomplete="off" enterkeyhint="search" />
       <button class="clear-btn" id="clearBtn">×</button>
     </div>
-    <!-- 候補リスト -->
     <div class="suggestions-list" id="suggestionsList"></div>
   </div>
 
-  <!-- 地図エリア -->
   <div id="map"></div>
 
-  <!-- スピードメーター（左下） -->
   <div class="speedometer">
     <div class="speed-val" id="speedDisplay">0</div>
     <div class="speed-lbl">km/h</div>
   </div>
 
-  <!-- 現在地FAB（右下） -->
   <button class="fab-recenter" id="fabRecenter" title="現在地に戻る">
     <svg class="fab-icon" viewBox="0 0 24 24">
       <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
     </svg>
   </button>
 
-  <!-- ルート案内カード -->
   <div class="route-card" id="routeCard">
     <div class="route-header">
       <div class="time-large" id="routeTime">約 -- 分</div>
@@ -293,11 +279,9 @@
     </div>
   </div>
 
-  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- Google Maps API（Places & Geocoding ライブラリ） -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyA88_70dM3x8_SAMPLE_KEY_REPLACE&libraries=places&language=ja&region=JP"></script>
+  <!-- Google Maps API -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=Maps_Platform_API_Key_REPLACE&libraries=places&language=ja&region=JP"></script>
 
   <script>
     let isTracking = true;
@@ -311,7 +295,6 @@
     let destLat = null;
     let destLng = null;
 
-    // 地図初期化
     const map = L.map('map', {
       zoomControl: false,
       attributionControl: false
@@ -321,7 +304,6 @@
       maxZoom: 19
     }).addTo(map);
 
-    // 自車ピン
     const userIcon = L.divIcon({
       className: 'g-user-pin',
       html: '<div style="width:16px;height:16px;border-radius:50%;background:#1a73e8;border:3px solid #ffffff;box-shadow:0 0 6px rgba(0,0,0,0.3);"></div>',
@@ -329,7 +311,6 @@
       iconAnchor: [11, 11]
     });
 
-    // 目的地ピン
     const destIcon = L.divIcon({
       className: 'g-dest-pin',
       html: '<div style="width:20px;height:20px;border-radius:50%;background:#ea4335;border:3px solid #ffffff;box-shadow:0 2px 6px rgba(0,0,0,0.3);"></div>',
@@ -337,7 +318,6 @@
       iconAnchor: [13, 13]
     });
 
-    // GPS 追跡
     if ("geolocation" in navigator) {
       navigator.geolocation.watchPosition(
         (pos) => {
@@ -369,28 +349,26 @@
       );
     }
 
-    // Google Places AutocompleteService（データAPI直接利用）
     const searchInput = document.getElementById('destInput');
     const suggestionsList = document.getElementById('suggestionsList');
     const clearBtn = document.getElementById('clearBtn');
     let autocompleteService = null;
     let placesService = null;
+    let geocoder = null;
     let debounceTimer = null;
 
-    // Google API 初期化
-    function initGoogleServices() {
-      if (window.google && google.maps && google.maps.places) {
-        autocompleteService = new google.maps.places.AutocompleteService();
-        // ダミー要素でPlacesServiceを初期化
-        const dummyNode = document.createElement('div');
-        placesService = new google.maps.places.PlacesService(dummyNode);
+    function initServices() {
+      if (window.google && google.maps) {
+        if (google.maps.places) {
+          autocompleteService = new google.maps.places.AutocompleteService();
+          const dummy = document.createElement('div');
+          placesService = new google.maps.places.PlacesService(dummy);
+        }
+        geocoder = new google.maps.Geocoder();
       }
     }
 
-    // 読み込み完了待ち
-    window.addEventListener('load', () => {
-      initGoogleServices();
-    });
+    window.addEventListener('load', initServices);
 
     searchInput.addEventListener('input', (e) => {
       const q = e.target.value.trim();
@@ -403,8 +381,20 @@
       }
 
       debounceTimer = setTimeout(() => {
-        fetchGooglePredictions(q);
-      }, 300);
+        searchGoogle(q);
+      }, 250);
+    });
+
+    // キーボードのEnter/検索キー押下時
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const q = searchInput.value.trim();
+        if (!q) return;
+        searchInput.blur();
+        suggestionsList.style.display = 'none';
+        directGeocode(q);
+      }
     });
 
     clearBtn.addEventListener('click', () => {
@@ -413,26 +403,22 @@
       suggestionsList.style.display = 'none';
     });
 
-    // Google予測候補の取得
-    function fetchGooglePredictions(query) {
-      if (!autocompleteService) {
-        initGoogleServices();
-        if (!autocompleteService) return;
-      }
+    function searchGoogle(query) {
+      if (!autocompleteService) initServices();
+      if (!autocompleteService) return;
 
       const req = {
         input: query,
         componentRestrictions: { country: 'jp' }
       };
 
-      // 現在地周辺を優先検索
       if (currentLat && currentLng) {
         req.location = new google.maps.LatLng(currentLat, currentLng);
         req.radius = 50000;
       }
 
       autocompleteService.getPlacePredictions(req, (predictions, status) => {
-        if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) {
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions || predictions.length === 0) {
           suggestionsList.style.display = 'none';
           return;
         }
@@ -454,7 +440,7 @@
           item.addEventListener('click', () => {
             searchInput.value = mainText;
             suggestionsList.style.display = 'none';
-            selectPlace(p.place_id, mainText);
+            resolvePlaceId(p.place_id, mainText);
           });
           suggestionsList.appendChild(item);
         });
@@ -463,23 +449,35 @@
       });
     }
 
-    // 候補選択時：座標の取得
-    function selectPlace(placeId, title) {
-      if (!placesService) return;
+    function resolvePlaceId(placeId, title) {
+      if (!placesService) initServices();
+      if (placesService) {
+        placesService.getDetails({ placeId: placeId, fields: ['geometry'] }, (res, status) => {
+          if (status === google.maps.places.PlacesServiceStatus.OK && res.geometry) {
+            setDestination(res.geometry.location.lat(), res.geometry.location.lng(), title);
+            return;
+          }
+          directGeocode(title);
+        });
+      } else {
+        directGeocode(title);
+      }
+    }
 
-      placesService.getDetails({
-        placeId: placeId,
-        fields: ['geometry', 'name']
-      }, (place, status) => {
-        if (status === google.maps.places.PlacesServiceStatus.OK && place.geometry) {
-          const lat = place.geometry.location.lat();
-          const lng = place.geometry.location.lng();
-          setDestination(lat, lng, title);
+    function directGeocode(query) {
+      if (!geocoder) initServices();
+      if (!geocoder) return;
+
+      geocoder.geocode({ address: query, region: 'JP' }, (results, status) => {
+        if (status === 'OK' && results[0]) {
+          const loc = results[0].geometry.location;
+          setDestination(loc.lat(), loc.lng(), query);
+        } else {
+          alert('該当する場所が見つかりませんでした');
         }
       });
     }
 
-    // 地図タップでも設定可能
     map.on('click', (e) => {
       setDestination(e.latlng.lat, e.latlng.lng, "指定した地点");
     });
@@ -500,7 +498,6 @@
       }
     }
 
-    // OSRM ルート検索
     async function fetchRoute(startLat, startLng, endLat, endLng) {
       const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
 
@@ -534,7 +531,6 @@
       }
     }
 
-    // ナビ開始
     document.getElementById('startBtn').addEventListener('click', () => {
       if (userMarker) {
         map.setView(userMarker.getLatLng(), 17);
@@ -544,7 +540,6 @@
       document.getElementById('startBtn').style.background = "#188038";
     });
 
-    // 閉じる
     document.getElementById('closeBtn').addEventListener('click', () => {
       if (routeLayer) map.removeLayer(routeLayer);
       if (destMarker) map.removeLayer(destMarker);
@@ -558,7 +553,6 @@
       document.getElementById('destInput').value = "";
     });
 
-    // 現在地FAB
     document.getElementById('fabRecenter').addEventListener('click', () => {
       if (userMarker) {
         map.setView(userMarker.getLatLng(), 16);
